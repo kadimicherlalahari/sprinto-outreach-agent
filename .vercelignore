@@ -1,0 +1,6 @@
+.env
+.env.*
+data/
+.venv/
+evals/out/
+.claude/
