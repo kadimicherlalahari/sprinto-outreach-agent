@@ -19,6 +19,11 @@ THRESHOLD_KEYS = {"max_bounce_rate": "bounced / accepted by Gmail", "max_opt_out
                   "max_negative_rate": "negative replies / accepted by Gmail"}
 
 
+def _reply_state(s):
+    from .gmail_sync import reply_state
+    return reply_state(s)
+
+
 def _rate(num: int, den: int) -> Optional[float]:
     return round(num / den, 4) if den else None
 
@@ -169,7 +174,8 @@ def build_report(store: Store, campaign_id: str = "pilot", as_of: Optional[date]
         cats = Counter(r["category"] or "other" for r in ev if r["send_id"] in ids and r["event_type"] == "reply")
         replied = {r["send_id"] for r in ev if r["send_id"] in ids}
         st6 = _stage("6. Accepted by Gmail -> replied (%s)" % label, len(accepted) - len(bounced), len(replied),
-                     {k: cats.get(k, 0) for k in ("positive", "negative", "question", "out_of_office", "opt_out", "other")},
+                     dict({k: cats.get(k, 0) for k in ("positive", "negative", "question", "ambiguous", "out_of_office", "opt_out", "other")},
+                          no_reply_after_window=sum(1 for s in accepted if _reply_state(s) == "no_reply")),
                      "sends accepted by Gmail and not bounced", "categories are rule-based classifications of replies")
         meet = sum(1 for s in accepted if s.get("meeting_status") == "invite_received")
         st7 = _stage("7. Replied -> meeting invitation (%s)" % label, len(replied), meet, {"calendar invitations received": meet},

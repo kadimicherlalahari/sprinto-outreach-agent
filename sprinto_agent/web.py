@@ -337,24 +337,38 @@ def create_app(mock: bool = False, store: Any = None, settings: Any = None, deps
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(next: str = "/", error: str = ""):
+        demo_box = ("""<div class="notice small" style="display:grid;gap:4px"><b>Demo access (project submission)</b>
+<span>Username: <code>%s</code></span><span>Password: <code>%s</code></span>
+<span class="muted">Full access. Sending only ever reaches the operator's own inbox, never a prospect.</span></div>""" % (
+            e(auth.DEMO_USERNAME), e(auth.DEMO_PASSWORD))) if auth.demo_enabled() else ""
         return HTMLResponse("""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sign in · Sprinto Outreach</title><style>%s</style></head><body><main style="display:grid;place-items:center;min-height:100vh;padding:16px">
-<form class="panel" method="post" action="/login" style="width:min(360px,100%%);padding:24px;display:grid;gap:12px">
-<h1 style="font-size:22px">Sprinto Outreach</h1><p class="muted small">Enter the dashboard password.</p>%s
-<input type="hidden" name="next" value="%s"><label class="f">Password<input type="password" name="password" autofocus required></label>
+<form class="panel" method="post" action="/login" style="width:min(380px,100%%);padding:24px;display:grid;gap:12px">
+<h1 style="font-size:22px">Sprinto Outreach</h1><p class="muted small">Sign in to the outreach agent dashboard.</p>%s%s
+<input type="hidden" name="next" value="%s"><label class="f">Username<input type="text" name="username" autocomplete="username" value="%s"></label>
+<label class="f">Password<input type="password" name="password" autocomplete="current-password" autofocus required></label>
 <button class="btn primary" type="submit">Sign in</button></form></main></body></html>""" % (
-            CSS, '<div class="flash bad">Wrong password</div>' if error else "", e(next if next.startswith("/") else "/")))
+            CSS, demo_box, '<div class="flash bad">Wrong username or password</div>' if error else "",
+            e(next if next.startswith("/") else "/"), e(auth.DEMO_USERNAME if auth.demo_enabled() else "")))
 
     @app.post("/login")
-    def login_submit(password: str = Form(""), next: str = Form("/")):
+    def login_submit(password: str = Form(""), next: str = Form("/"), username: str = Form("")):
         import time as _t
-        if not auth.check_password(password):
+        if not auth.check_password(password, username):
             _t.sleep(1.0)   # slow down guessing
             return RedirectResponse("/login?error=1", status_code=303)
         r = RedirectResponse(next if next.startswith("/") and not next.startswith("//") else "/", status_code=303)
         r.set_cookie(auth.COOKIE, auth.make_token(), max_age=auth.MAX_AGE, httponly=True, samesite="strict",
                      secure=auth.on_vercel())
         return r
+
+    @app.get("/healthz")
+    def healthz():
+        """Public status (no secrets, no data): send mode and whether the database and Gmail are configured."""
+        from .gmail import build_client
+        return JSONResponse({"send_mode": settings.send_mode, "transport": settings.send_transport,
+                             "database": state.get("store") is not None, "gmail": build_client(settings) is not None,
+                             "recipient": "operator inbox only"})
 
     @app.post("/logout")
     def logout():

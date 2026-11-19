@@ -8,6 +8,9 @@ from sprinto_agent.web import create_app
 def client(store, monkeypatch, password=None, vercel=True, cron=None):
     for k in ("DASHBOARD_PASSWORD", "VERCEL", "CRON_SECRET", "DASHBOARD_SESSION_SECRET"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("DEMO_LOGIN", "off")           # demo credentials are tested separately below
+    for k in ():
+        monkeypatch.delenv(k, raising=False)
     if password:
         monkeypatch.setenv("DASHBOARD_PASSWORD", password)
     if vercel:
@@ -66,3 +69,26 @@ def test_runs_refused_on_vercel_and_cron_needs_secret(store, monkeypatch):
 def test_local_without_password_unchanged(store, monkeypatch):
     c = client(store, monkeypatch, vercel=False)
     assert c.get("/").status_code == 200
+
+
+def test_demo_credentials_shown_and_accepted_on_vercel(store, monkeypatch):
+    from sprinto_agent import auth
+    c = client(store, monkeypatch, password="owner-secret")
+    monkeypatch.setenv("DEMO_LOGIN", "on")
+    page = c.get("/login").text
+    assert auth.DEMO_USERNAME in page and auth.DEMO_PASSWORD in page
+    bad = c.post("/login", data={"username": "someone", "password": auth.DEMO_PASSWORD, "next": "/"}, follow_redirects=False)
+    assert "error" in bad.headers["location"]                                        # demo password needs the demo username
+    ok = c.post("/login", data={"username": auth.DEMO_USERNAME, "password": auth.DEMO_PASSWORD, "next": "/"}, follow_redirects=False)
+    assert ok.headers["location"] == "/" and c.get("/controls").status_code == 200
+    c2 = client(store, monkeypatch, password="owner-secret")
+    monkeypatch.setenv("DEMO_LOGIN", "on")
+    assert c2.post("/login", data={"password": "owner-secret", "next": "/"}, follow_redirects=False).headers["location"] == "/"
+
+
+def test_demo_login_can_be_turned_off(store, monkeypatch):
+    from sprinto_agent import auth
+    c = client(store, monkeypatch, password="owner-secret")
+    assert auth.DEMO_PASSWORD not in c.get("/login").text
+    r = c.post("/login", data={"username": auth.DEMO_USERNAME, "password": auth.DEMO_PASSWORD}, follow_redirects=False)
+    assert "error" in r.headers["location"]

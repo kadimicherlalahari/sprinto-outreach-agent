@@ -207,6 +207,8 @@ def typo_only(before: str, after: str) -> bool:
         xs, ys = x.lower().strip(".,!?;:"), y.lower().strip(".,!?;:")
         if xs in _TONE_WORDS or ys in _TONE_WORDS or _lev(xs, ys) > 2:
             return False
+        if set(re.sub(r"[^!?]", "", x)) != set(re.sub(r"[^!?]", "", y)):
+            return False   # "." -> "!" or "?" changes tone even though only punctuation moved
     return True
 
 

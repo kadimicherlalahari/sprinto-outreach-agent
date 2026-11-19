@@ -15,15 +15,25 @@ from typing import Optional
 
 COOKIE = "sprinto_session"
 MAX_AGE = 12 * 3600
-EXEMPT = ("/login", "/gmail/push", "/cron/", "/favicon.ico")
+EXEMPT = ("/login", "/gmail/push", "/cron/", "/favicon.ico", "/healthz")
 
 
 def on_vercel() -> bool:
     return bool(os.environ.get("VERCEL"))
 
 
+# Public demo credentials for the project submission (shown on the login page; full access, as chosen by the
+# operator). Disable with DEMO_LOGIN=off. Override with DEMO_USERNAME / DEMO_PASSWORD.
+DEMO_USERNAME = os.environ.get("DEMO_USERNAME") or "professor"
+DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD") or "sprinto-demo-2026"
+
+
+def demo_enabled() -> bool:
+    return on_vercel() and (os.environ.get("DEMO_LOGIN") or "on").lower() != "off"
+
+
 def password() -> Optional[str]:
-    return (os.environ.get("DASHBOARD_PASSWORD") or "").strip() or None
+    return (os.environ.get("DASHBOARD_PASSWORD") or "").strip() or (DEMO_PASSWORD if demo_enabled() else None)
 
 
 def _secret() -> bytes:
@@ -45,9 +55,14 @@ def valid_token(tok: Optional[str], now: Optional[float] = None) -> bool:
     return hmac.compare_digest(sig, good) and exp.isdigit() and int(exp) > (time.time() if now is None else now)
 
 
-def check_password(given: str) -> bool:
-    pw = password()
-    return bool(pw) and hmac.compare_digest((given or "").encode(), pw.encode())
+def check_password(given: str, username: str = "") -> bool:
+    """Owner password (DASHBOARD_PASSWORD, any username) or the public demo credentials."""
+    g = (given or "").encode()
+    owner = (os.environ.get("DASHBOARD_PASSWORD") or "").strip()
+    if owner and hmac.compare_digest(g, owner.encode()):
+        return True
+    return demo_enabled() and hmac.compare_digest(g, DEMO_PASSWORD.encode()) and \
+        hmac.compare_digest((username or "").strip().lower().encode(), DEMO_USERNAME.lower().encode())
 
 
 def gate(path: str, cookie: Optional[str]) -> Optional[str]:

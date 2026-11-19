@@ -11,8 +11,8 @@ must_have:
     description: "Sells a B2B software product, typically by subscription"
   funding_stage:                   # [case] "typically Series A-C"
     allowed: ["series_a", "series_b", "series_c"]
-    uncertain: ["seed", "unknown"]          # not rejected, needs more research
-    rejected: ["series_d_plus", "public"]
+    uncertain: ["unknown"]                  # not rejected, needs more research
+    rejected: ["seed", "series_d_plus", "public"]   # [class eval spec 2026-11-12] Seed is outside Series A-C
 
 # A qualified company needs at least `min_triggers` verified trigger signals. [case] audit prep / enterprise pressure
 min_triggers: 1
@@ -39,14 +39,16 @@ triggers:
 recent_funding_months: 12          # [assumption]
 
 negatives:
-  fully_certified:                 # [assumption] already has SOC 2 AND ISO 27001 -> lower priority, not disqualified
-    weight: -25
+  already_certified:               # [class eval spec] already holds SOC 2 or ISO 27001 -> disqualified (nothing to sell)
+    disqualify: true
+    frameworks: ["soc2", "iso27001"]
   competitor:                      # [assumption] compliance-automation vendors are not prospects
     disqualify: true
     names: ["vanta", "drata", "secureframe", "thoropass", "scrut", "sprinto"]
 
-# Size is optional evidence. [assumption] typical Series A-C range; outside range lowers the score.
-employee_range: {min: 15, max: 1000, out_of_range_weight: -10}
+# Size [class eval spec]: target band 50-200 is a SOFT preference. 40-300 is accepted ("near band");
+# a VERIFIED size outside 40-300 is rejected. Unknown size never rejects (it stays an open question).
+employee_range: {band_min: 50, band_max: 200, soft_min: 40, soft_max: 300}
 
 scoring:
   base_for_must_haves: 30          # score when both must-haves are verified

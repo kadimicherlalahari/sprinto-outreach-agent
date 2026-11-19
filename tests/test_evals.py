@@ -14,8 +14,10 @@ def test_eval_suite_has_no_critical_failures_and_covers_every_decision(tmp_path)
     assert s["critical_failures"] == [], [(r.case.id, r.reason) for r in results if not r.passed]
     assert s["uncovered_decisions"] == []
     assert set(s["by_decision"]) == set(DECISIONS)
-    assert s["failed"] == 0, [(r.case.id, r.reason) for r in results if not r.passed]
-    assert (tmp_path / "report.md").exists() and json.loads((tmp_path / "results.json").read_text())["summary"]["total"] == len(cases)
+    assert s["failed"] == 0, [(r.case.id, r.reason) for r in results if not r.passed and not r.na]
+    assert all(r.case.decision in ("C7", "C8") for r in results if r.na)          # only unbuilt decisions are skipped
+    assert (tmp_path / "report.md").exists()
+    assert json.loads((tmp_path / "results.json").read_text())["summary"]["total"] == len([c for c in cases if c.kind != "na"])
 
 
 def test_harness_detects_a_deliberately_broken_expectation():
@@ -35,5 +37,5 @@ def test_same_case_twice_same_verdict_no_extra_side_effects():
 def test_judge_calibration_logs_disagreements(tmp_path):
     c = calibrate(out=tmp_path)
     log = (tmp_path / "judge_disagreements.jsonl").read_text().strip().splitlines()
-    assert c["total"] == 20 and len(log) == c["total"] - c["agree"]
+    assert c["total"] == 22 and len(log) == c["total"] - c["agree"]
     assert all({"id", "human", "judge", "judge_reason"} <= set(json.loads(l)) for l in log)

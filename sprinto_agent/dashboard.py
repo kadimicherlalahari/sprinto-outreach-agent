@@ -203,10 +203,18 @@ def action_queue(store: Store, views: List[CompanyView]) -> List[ActionItem]:
                    len({v.row["id"] for v in failed + retryable}), "/pipeline?stage=error", "bad"),
         ActionItem("Resume interrupted runs", "A run stopped part-way (crash or restart); resuming skips work already done",
                    len(interrupted), "/runs/%s" % interrupted[0]["id"] if interrupted else "/runs", "warn"),
-        ActionItem("Follow-ups due", "Reply tracking isn't connected yet; follow-ups will appear here",
-                   None, "/outreach", "muted", connected=False),
+        ActionItem("Read replies that need you", "Ambiguous replies, questions and unclassified replies are routed to a person",
+                   sum(1 for s in snap["sends"] if (s.get("reply_status") or "") in ("ambiguous", "question", "other")),
+                   "/outreach", "accent"),
+        ActionItem("No reply: follow-up due", "Sent emails with no reply after the follow-up window",
+                   sum(1 for s in snap["sends"] if _reply_state(s) == "no_reply"), "/outreach", "warn"),
     ]
     return items
+
+
+def _reply_state(s: Dict[str, Any]) -> str:
+    from .gmail_sync import reply_state
+    return reply_state(s)
 
 
 def run_progress(store: Store, run: Dict[str, Any]) -> Dict[str, Any]:

@@ -160,7 +160,7 @@ def test_stop_reason_score_range_and_could_change_are_persisted(store, icp):
     rid, _ = run(store, deps_with(icp), domains=("ledgerly.example", "quietforms.example"))
     led, quiet = company(store, "ledgerly.example", rid), company(store, "quietforms.example", rid)
     assert led["stop_code"] == "decision_stable" and led["could_change"] in (0, False)
-    assert quiet["could_change"] in (1, True) and quiet["score_min"] < quiet["score"] <= quiet["score_max"]
+    assert quiet["could_change"] in (1, True) and quiet["score_min"] <= quiet["score"] < quiet["score_max"]
     assert "could change the result" in quiet["stop_reason"] and quiet["budget_json"]
 
 

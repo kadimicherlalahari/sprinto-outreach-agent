@@ -32,15 +32,18 @@ from .util import get_logger, now_iso, redact, redact_pii
 
 log = get_logger(__name__)
 
-CATEGORIES = ("positive", "negative", "question", "out_of_office", "opt_out", "bounce", "other")
+CATEGORIES = ("positive", "negative", "question", "ambiguous", "out_of_office", "opt_out", "bounce", "other")
+NEEDS_HUMAN = ("ambiguous", "question", "other")   # replies a person should read before anything else happens
 BOUNCE_FROM = re.compile(r"mailer-daemon|postmaster|mail delivery (sub)?system", re.I)
 RULES = [
     ("out_of_office", re.compile(r"\b(out of (the )?office|ooo|on (annual |parental )?leave|on vacation|on holiday|"
                                  r"away (from|until)|automatic reply|auto-?reply|limited access to email)\b", re.I)),
-    ("opt_out", re.compile(r"\b(unsubscribe|remove me|take me off|opt(ed)?[- ]?out|stop (emailing|contacting|sending)|"
-                           r"do not (contact|email)|don'?t (contact|email) me|no more emails)\b", re.I)),
+    ("opt_out", re.compile(r"\b(unsubscribe|remove (me|us)|take (me|us) off|opt(ed)?[- ]?out|stop (emailing|contacting|sending)|"
+                           r"do not (contact|email)|don'?t (contact|email) (me|us)|no more emails)\b", re.I)),
     ("negative", re.compile(r"\b(not interested|no thanks|no thank you|not a (good )?fit|not relevant|no need|"
                             r"not (right )?now|we'?re (all )?set|pass on this|not looking)\b", re.I)),
+    ("ambiguous", re.compile(r"\b(maybe|perhaps|possibly|next (quarter|year|month)|later this year|in a few months|"
+                             r"not sure|let'?s see|circle back|revisit|down the line|keep (me|us) posted)\b", re.I)),
     ("positive", re.compile(r"\b(interested|let'?s (talk|chat|connect|meet)|sounds (good|great|interesting)|"
                             r"happy to (chat|talk|connect)|book a|schedule a|set up a (call|meeting)|tell me more|"
                             r"keen to|would love to)\b", re.I)),
@@ -342,6 +345,22 @@ def _check_outgoing(store: Store, settings: Any, m: Dict[str, Any], send_id: str
         if sup and str(sup["created_at"]) < str(row["sent_at"]):
             raise_incident(store, "opt_out_ignored", "send %s went out after the contact opted out" % send_id[:8],
                            draft_id=row["draft_id"], send_id=send_id)
+
+
+def reply_state(send: Dict[str, Any], now: Optional[datetime] = None) -> str:
+    """What we know about a reply to one send: a reply category, 'no_reply' once the follow-up window has passed,
+    otherwise 'waiting'. Dry runs and unsent rows are 'not_sent'."""
+    if send.get("status") != "sent":
+        return "not_sent"
+    rs = send.get("reply_status") or "not_tracked"
+    if rs not in ("not_tracked", ""):
+        return rs
+    from .util import parse_date
+    due = parse_date(send.get("follow_up_due_at") or "")
+    now = now or datetime.now(timezone.utc)
+    if due is not None and now > due:
+        return "no_reply"
+    return "waiting"
 
 
 def status(store: Store) -> Dict[str, Any]:

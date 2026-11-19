@@ -42,4 +42,13 @@ DECISIONS = {
     "D38": {"name": "Pilot report window, stage counts, denominators, test vs prospect", "where": "report.build_report / window"},
     "D39": {"name": "Redaction of secrets and personal data", "where": "util.redact / redact_pii"},
     "D40": {"name": "Untrusted links rendered safely in the UI", "where": "web.safe_href"},
+    # ---- class eval spec (MESA T2-L7, 12 Nov 2026), Sprinto pipeline decisions 1-8 ----
+    "C1": {"name": "[Class] Shortlist: does this company match the ICP?", "where": "qualify.assess (class ICP rules)"},
+    "C2": {"name": "[Class] Scraper loop: has it found enough? (soft)", "where": "research.Researcher + qualify.stop_decision"},
+    "C3": {"name": "[Class] Scraper loop: when does it stop? (retry cap)", "where": "qualify.Budget / stop_decision"},
+    "C4": {"name": "[Class] Draft: is a past correction relevant? (soft)", "where": "feedback.accepted_guidance, drafting.compose"},
+    "C5": {"name": "[Class] Feedback: does an edit count as a correction? (soft)", "where": "feedback.categorize / typo_only"},
+    "C6": {"name": "[Class] Send & wait: what does the reply mean?", "where": "gmail_sync.classify_reply / reply_state, safety"},
+    "C7": {"name": "[Class] Schedule the call (confirm / counter / silence)", "where": "not built", "not_built": True},
+    "C8": {"name": "[Class] Book meeting + update CRM", "where": "not built", "not_built": True},
 }

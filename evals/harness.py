@@ -60,6 +60,7 @@ class Result:
     seconds: float
     judge: Optional[Dict[str, Any]] = None
     side_effects: Dict[str, int] = field(default_factory=dict)
+    na: bool = False                   # case describes a decision the app does not implement
 
 
 def matches(observed: Any, expect: Any) -> Tuple[bool, str]:
@@ -106,6 +107,9 @@ def _side_effects(env: Any) -> Dict[str, int]:
 def run_case(case: Case) -> Result:
     from evals.fixtures import Env
     t0 = time.time()
+    if case.kind == "na":
+        return Result(case, False, None, "NOT BUILT: " + (case.assumption or "decision not implemented in this app"),
+                      0.0, None, {}, na=True)
     with tempfile.TemporaryDirectory() as tmp, _NoNetwork():
         env = Env(tmp)
         try:
@@ -168,6 +172,8 @@ def run_all(cases: List[Case], break_id: Optional[str] = None) -> List[Result]:
 
 def summary(results: List[Result]) -> Dict[str, Any]:
     from evals.decisions import DECISIONS
+    na = [r for r in results if r.na]
+    results = [r for r in results if not r.na]
     tot = len(results)
     passed = sum(r.passed for r in results)
     by_sev = {s: {"total": 0, "passed": 0} for s in SEVERITIES}
@@ -184,7 +190,8 @@ def summary(results: List[Result]) -> Dict[str, Any]:
                      "hard": sum(r.case.kind == "hard" for r in rs), "soft": sum(r.case.kind == "soft" for r in rs)}
     return {"total": tot, "passed": passed, "failed": tot - passed, "by_severity": by_sev,
             "critical_failures": crit_fail, "live_use_blocked": bool(crit_fail), "by_decision": by_dec,
-            "uncovered_decisions": [d for d, v in by_dec.items() if not v["cases"]],
+            "uncovered_decisions": [d for d, v in by_dec.items() if not v["cases"] and not DECISIONS[d].get("not_built")],
+            "not_built": [r.case.id for r in na],
             "boundary_cases": sum(1 for r in results if r.case.boundary)}
 
 
@@ -208,7 +215,8 @@ def write_report(results: List[Result], calib: Optional[Dict[str, Any]] = None, 
     for sev in SEVERITIES:
         b = s["by_severity"][sev]
         lines.append("| %s | %d | %d | %d |" % (sev, b["total"], b["passed"], b["total"] - b["passed"]))
-    lines += ["", "Boundary cases (below / at / above a cap or threshold): %d" % s["boundary_cases"], ""]
+    lines += ["", "Boundary cases (below / at / above a cap or threshold): %d" % s["boundary_cases"],
+              "Not built (listed, not counted as pass or fail): %d case(s): %s" % (len(s["not_built"]), ", ".join(s["not_built"]) or "none"), ""]
     if calib:
         lines += ["## Soft-judge calibration", "",
                   "Judge vs labelled examples: %d/%d agree (%.0f%%). Disagreements are logged to "
@@ -223,7 +231,7 @@ def write_report(results: List[Result], calib: Optional[Dict[str, Any]] = None, 
         lines.append("| %s %s | %d | %d | %s | %s | %d/%d |" % (d, _cell(DECISIONS[d]["name"], 60), v["cases"], v["passed"],
                                                                _cell(", ".join(v["partitions"]), 140),
                                                                ", ".join(v["boundaries"]) or "–", v["hard"], v["soft"]))
-    fails = [r for r in results if not r.passed]
+    fails = [r for r in results if not r.passed and not r.na]
     lines += ["", "## Failures", ""]
     if not fails:
         lines.append("None.")
@@ -244,7 +252,8 @@ def write_report(results: List[Result], calib: Optional[Dict[str, Any]] = None, 
             c = r.case
             lines.append("| %s | %s | %s | %s | %s | %s%s | %s |" % (
                 c.id, _cell(c.input), _cell(c.expected), _cell(c.assertion), c.severity, c.kind,
-                (", " + c.boundary) if c.boundary else "", "PASS" if r.passed else "**FAIL**: " + _cell(r.reason, 120)))
+                (", " + c.boundary) if c.boundary else "",
+                "NOT BUILT" if r.na else ("PASS" if r.passed else "**FAIL**: " + _cell(r.reason, 120))))
         lines.append("")
     (path / "report.md").write_text("\n".join(lines), encoding="utf-8")
     payload = {"summary": s, "calibration": calib, "results": [{
@@ -288,7 +297,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("cases %d · passed %d · failed %d · critical failures %s · report %s" % (
         s["total"], s["passed"], s["failed"], s["critical_failures"] or "none", out / "report.md"))
     for r in results:
-        if not r.passed:
+        if not r.passed and not r.na:
             print("  FAIL %-8s %-8s %s" % (r.case.id, r.case.severity, r.reason[:200]))
     return 1 if s["live_use_blocked"] else 0
 

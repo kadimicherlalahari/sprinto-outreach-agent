@@ -528,16 +528,17 @@ def register(app: Any, ctx: Any) -> None:
                         "JOIN pocs p ON p.id = d.poc_id ORDER BY s.sent_at DESC")
         tone = {"accepted_by_gmail": "good", "bounced": "bad", "unknown": "warn", "not_sent": "muted"}
         lbl = {"accepted_by_gmail": "Accepted by Gmail", "bounced": "Bounced", "unknown": "Unknown", "not_sent": "Not sent"}
-        rtone = {"positive": "good", "question": "accent", "negative": "bad", "opt_out": "bad", "out_of_office": "muted",
-                 "other": "muted", "replied": "good"}
+        rtone = {"positive": "good", "question": "accent", "ambiguous": "warn", "negative": "bad", "opt_out": "bad",
+                 "out_of_office": "muted", "other": "muted", "replied": "good", "no_reply": "warn", "waiting": "muted"}
+        from .gmail_sync import reply_state
         trs = "".join("""<tr><td class="co"><a href="/drafts/%s">%s</a><div class="sub">%s · %s</div></td>
 <td>%s<div class="sub">%s%s</div></td><td>%s</td><td class="hide-sm muted small num">%s</td><td>%s</td></tr>""" % (
             _e(r["draft_id"]), _e(r["current_subject"]), _e(r["name"] or r["domain"]), _e(r["full_name"]),
             '<span class="pill t-%s"><i></i>%s</span>' % (tone.get(r.get("delivery_status") or "", "muted"),
                                                           _e(lbl.get(r.get("delivery_status") or "", r["status"].replace("_", " ")))),
             _e(r.get("transport") or ""), (" · thread %s" % _e((r.get("gmail_thread_id") or "")[:10])) if r.get("gmail_thread_id") else "",
-            ('<span class="pill t-%s"><i></i>%s</span>' % (rtone.get(r.get("reply_status") or "", "muted"), _e((r.get("reply_status") or "").replace("_", " "))))
-            if r.get("reply_status") and r.get("reply_status") != "not_tracked" else '<span class="muted small">no reply</span>',
+            ('<span class="pill t-%s"><i></i>%s</span>' % (rtone.get(reply_state(r), "muted"), _e(reply_state(r).replace("_", " "))))
+            if reply_state(r) not in ("not_sent",) else '<span class="muted small">–</span>',
             _e((r["sent_at"] or "")[:16].replace("T", " ")),
             '<span class="pill t-info"><i></i>Test</span>' if r.get("is_test", True) in (True, 1) else '<span class="pill t-accent"><i></i>Prospect</span>')
             for r in rows)

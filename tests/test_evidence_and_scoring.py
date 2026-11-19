@@ -151,13 +151,17 @@ def test_stop_rules(icp):
     assert not cont and "rejected" in why and code == "rejected"
 
 
-def test_qualified_stops_only_when_negatives_cannot_flip(icp):
+def test_qualified_keeps_researching_until_disqualifiers_are_checked(icp):
+    """Class rules: certification or a far-off size can disqualify, so while either is unknown research continues;
+    once both are checked (not found / in band) the qualified decision is stable and research stops."""
     evs = [ev("is_b2b_saas", "true"), ev("funding_stage", "series_b", tier="2", published="2026-10-01"),
            ev("compliance_in_progress", "soc2"), ev("enterprise_selling", "sso_saml")]
     a = assess(evs, icp, "Acme", "acme.example", NOW)
-    assert a.decision == "qualified"
-    assert a.min_possible >= icp["scoring"]["qualify_threshold"]
-    assert stop_decision(a, Budget(10, 4), True)[0] is False
+    assert a.decision == "qualified" and set(a.open_questions) == {"certified", "employee_count"}
+    assert stop_decision(a, Budget(10, 4), True)[0] is True
+    b = assess(evs + [ev("employee_count", "120")], icp, "Acme", "acme.example", NOW, coverage={"certified": "checked"})
+    assert b.decision == "qualified" and b.open_questions == []
+    assert stop_decision(b, Budget(10, 4), True)[0] is False
 
 
 # ---------- regressions from the first live run (2026-11-19) ----------

@@ -168,7 +168,10 @@ def assess(evidence: List[Evidence], icp: Dict[str, Any], name: Optional[str], d
     must_unknown = 0
     if saas.status in ("verified",) and saas.value == "true":
         must_ok += 1
-    elif saas.status in ("unknown", "conflict", "inferred"):
+    elif saas.status == "verified" and saas.value == "false":
+        disqualified = True
+        reasons.append("not B2B SaaS")
+    elif saas.status in ("unknown", "conflict", "inferred", "not_found"):
         must_unknown += 1
     if fs.status == "verified" and fs.value in fs_cfg.get("allowed", []):
         must_ok += 1
@@ -182,6 +185,25 @@ def assess(evidence: List[Evidence], icp: Dict[str, Any], name: Optional[str], d
     if is_competitor(name, domain, icp):
         disqualified = True
         reasons.append("compliance-automation vendor / competitor")
+    # already certified (we would have nothing to sell) -> disqualified, only on VERIFIED evidence
+    ac = icp.get("negatives", {}).get("already_certified", {}) or {}
+    if ac.get("disqualify") and crit["certified"].status == "verified":
+        held_fw = set((crit["certified"].value or "").split(",")) & set(ac.get("frameworks") or [])
+        if held_fw:
+            disqualified = True
+            reasons.append("already certified (%s)" % ", ".join(sorted(held_fw)))
+    # company size: soft band; only a VERIFIED size far outside the soft range rejects
+    er = icp.get("employee_range", {}) or {}
+    ec = crit["employee_count"]
+    if ec.status in ("verified", "inferred") and ec.value and ec.value.isdigit() and er.get("band_min") is not None:
+        n = int(ec.value)
+        if int(er["band_min"]) <= n <= int(er["band_max"]):
+            pass
+        elif int(er.get("soft_min", er["band_min"])) <= n <= int(er.get("soft_max", er["band_max"])):
+            reasons.append("size %d is near the %s-%s band (accepted: soft boundary)" % (n, er["band_min"], er["band_max"]))
+        elif ec.status == "verified":
+            disqualified = True
+            reasons.append("size %d is far outside the %s-%s band" % (n, er["band_min"], er["band_max"]))
 
     score = base * must_ok // 2
     pot = base * must_unknown // 2
@@ -208,26 +230,8 @@ def assess(evidence: List[Evidence], icp: Dict[str, Any], name: Optional[str], d
             pot += w
             unknown_triggers.append(t)
 
-    # ---- negatives ----
-    neg = 0
+    # ---- negatives (certification and size are handled above as disqualifiers) ----
     neg_unknown = 0
-    fc_w = int(icp.get("negatives", {}).get("fully_certified", {}).get("weight", 0))
-    certs = set((crit["certified"].value or "").split(",")) if crit["certified"].status == "verified" else set()
-    if {"soc2", "iso27001"} <= certs:
-        neg += fc_w
-        reasons.append("already holds SOC 2 and ISO 27001 (lower priority)")
-    elif crit["certified"].status == "unknown":
-        neg_unknown += fc_w
-    er = icp.get("employee_range", {})
-    ec = crit["employee_count"]
-    if ec.status in ("verified", "inferred") and ec.value and ec.value.isdigit():
-        n = int(ec.value)
-        if not (int(er.get("min", 0)) <= n <= int(er.get("max", 10 ** 9))):
-            neg += int(er.get("out_of_range_weight", 0))
-            reasons.append("employee count %d outside typical range" % n)
-    else:
-        neg_unknown += int(er.get("out_of_range_weight", 0))
-    score += neg
 
     max_possible = score + pot
     min_possible = score + neg_unknown
@@ -239,8 +243,8 @@ def assess(evidence: List[Evidence], icp: Dict[str, Any], name: Optional[str], d
     elif must_ok == 2 and verified_triggers >= min_triggers and score >= threshold:
         decision = "qualified"
         reasons.append("both must-haves verified; %d verified trigger(s); score %d >= %d" % (verified_triggers, score, threshold))
-        if min_possible < threshold:
-            open_q = [k for k in ("certified", "employee_count") if crit[k].status in ("unknown", "conflict")]
+        # still-unknown certification or size could disqualify, so they stay open questions
+        open_q = [k for k in ("certified", "employee_count") if crit[k].status in ("unknown", "conflict")]
     elif max_possible < threshold:
         decision = "rejected"
         reasons.append("best-case score %d cannot reach threshold %d" % (max_possible, threshold))

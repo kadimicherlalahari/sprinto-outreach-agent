@@ -6,7 +6,8 @@ Rubric R1, evidence relevance: is this quote usable evidence for this criterion 
   Otherwise fail, with the first rule that failed as the reason.
 
 Rubric R2, edit significance: is an edit a meaningful tone/wording change, or only a typo fix?
-  "typo" if: same number of words and every changed word is within 2 character edits of the original word.
+  "typo" if: same number of words and every changed word is within 2 character edits of the original word, and no
+  edit changes sentence mood ("." -> "!" or "?"); judged on intent, not edit size.
   "meaningful" otherwise (words added/removed, or a word replaced by a different word).
 
 Calibration: evals/calibration.json holds labelled examples. calibrate() runs the judge on each one, reports
@@ -68,6 +69,9 @@ def judge_edit(item: Dict[str, Any]) -> Dict[str, Any]:
     far = [(x, y) for x, y in changed if _lev(x.lower().strip(".,!?"), y.lower().strip(".,!?")) > 2]
     if far:
         return {"label": "meaningful", "rule": "R2", "reason": "word replaced: %r -> %r" % far[0]}
+    mood = [(x, y) for x, y in changed if set(re.sub(r"[^!?]", "", x)) != set(re.sub(r"[^!?]", "", y))]
+    if mood:
+        return {"label": "meaningful", "rule": "R2", "reason": "punctuation changes the tone: %r -> %r" % mood[0]}
     return {"label": "typo", "rule": "R2", "reason": "%d word(s) changed by <= 2 characters each" % len(changed)}
 
 
