@@ -1,0 +1,27 @@
+# Cost limits for billable research calls. Loaded into Neon (cost_settings) when no limits are set there yet.
+# Changing this file later does NOT overwrite limits already saved in Neon; change them in Controls (recorded).
+#
+# Basis (checked 2026-11-19; re-check before relying on them):
+#   Tavily basic search: 1 credit = $0.008 pay-as-you-go (docs.tavily.com/documentation/api-credits).
+#   Gemini 3.5 Flash-Lite: third-party listings range $0.25-0.30 per 1M input, $1.50-2.50 per 1M output tokens.
+#     The meter prices ALL tokens at the highest listed rate ($2.50 / 1M) so the estimate errs high.
+#   Hunter Domain Search: 1 search credit per call (help.hunter.io). Dollar price per credit depends on plan and
+#     is unclear, so it is treated as UNKNOWN price and capped by a monthly call limit instead.
+#
+# Agent cost per company (worst case within research budgets): 3 searches x $0.008 = $0.024
+#   + up to 13 model calls x ~5,000 tokens x $2.50/1M = ~$0.16  ->  ~$0.19 (typical runs use far fewer calls).
+# Human comparison (ASSUMPTION, not a measured rate): a person researching one company, finding a contact and
+#   writing a first draft takes ~20-30 minutes. At an assumed fully loaded $10/hour that is ~$3.30-5.00 per company.
+# Chosen limits:
+#   per company: $0.25  -> covers one full worst-case research pass, stays < 10% of the assumed human cost.
+#   per month:   $20.00 -> ~100 worst-case companies, or the 1,000 free Tavily credits plus model calls for a pilot.
+#   hunter:      40 domain searches per month -> stays under the free plan's 50 so it never bills by surprise.
+currency: USD
+per_company_cap: 0.25
+period_cap: 20.00
+prices:
+  tavily: 0.008        # per search request
+  gemini: 2.50         # per 1M tokens (conservative: output rate applied to all tokens)
+  hunter: null         # unknown -> unit limit below
+unit_limits:
+  hunter: 40           # domain searches per calendar month

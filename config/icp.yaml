@@ -1,0 +1,83 @@
+# Sprinto ICP — editable. Code reads this file; nothing here is hardcoded in Python.
+#
+# Origin of each criterion is labeled:
+#   [case]       = stated in the "AI Term 2 Case 2" brief
+#   [assumption] = operator's working assumption, approved 2026-11-18; review and change freely
+version: 1
+name: "Sprinto ICP v1"
+
+must_have:
+  is_b2b_saas:                     # [case] "SaaS companies"
+    description: "Sells a B2B software product, typically by subscription"
+  funding_stage:                   # [case] "typically Series A-C"
+    allowed: ["series_a", "series_b", "series_c"]
+    uncertain: ["seed", "unknown"]          # not rejected, needs more research
+    rejected: ["series_d_plus", "public"]
+
+# A qualified company needs at least `min_triggers` verified trigger signals. [case] audit prep / enterprise pressure
+min_triggers: 1
+triggers:
+  enterprise_selling:              # [case] "under pressure from enterprise customers"
+    weight: 25
+    description: "Enterprise plan, SSO/SAML/audit logs, or enterprise / regulated customers"
+  compliance_in_progress:          # [case] "preparing for a compliance audit"
+    weight: 30
+    description: "Trust page says SOC 2 / ISO 27001 in progress, or audit prep stated"
+  compliance_hiring:               # [assumption]
+    weight: 20
+    description: "Open roles in security, GRC, or compliance"
+  gdpr_exposure:                   # [case] GDPR is a Sprinto framework; [assumption] EU/UK expansion signal
+    weight: 15
+    description: "EU/UK customers or expansion, or explicit GDPR obligations"
+  sensitive_data:                  # [assumption]
+    weight: 10
+    description: "Handles sensitive data (fintech, HR, health, payments)"
+  recent_funding:                  # [assumption] window below
+    weight: 20
+    description: "Funding round announced within the recency window"
+
+recent_funding_months: 12          # [assumption]
+
+negatives:
+  fully_certified:                 # [assumption] already has SOC 2 AND ISO 27001 -> lower priority, not disqualified
+    weight: -25
+  competitor:                      # [assumption] compliance-automation vendors are not prospects
+    disqualify: true
+    names: ["vanta", "drata", "secureframe", "thoropass", "scrut", "sprinto"]
+
+# Size is optional evidence. [assumption] typical Series A-C range; outside range lowers the score.
+employee_range: {min: 15, max: 1000, out_of_range_weight: -10}
+
+scoring:
+  base_for_must_haves: 30          # score when both must-haves are verified
+  qualify_threshold: 60            # >= qualifies; if even the best case cannot reach it -> rejected
+
+# Target POC roles, highest priority first. [assumption]
+poc_roles:
+  - {label: "CTO / VP Engineering", patterns: ["\\bcto\\b", "chief technology", "vp,? engineering", "vice president,? engineering", "head of engineering"]}
+  - {label: "Security / Compliance lead", patterns: ["\\bciso\\b", "chief information security", "head of security", "security lead", "head of compliance", "\\bgrc\\b", "compliance manager", "director of security"]}
+  - {label: "Founder / CEO", patterns: ["\\bceo\\b", "co-?founder", "\\bfounder\\b", "chief executive"]}
+
+# Role -> two most likely pain hypotheses (case step 5). Written as full sentences; drafts label them as guesses.
+pain_hypotheses:
+  "CTO / VP Engineering":
+    - "security questionnaires and audit evidence requests are probably pulling engineers off the roadmap"
+    - "some enterprise deals may be waiting on a SOC 2 or ISO 27001 report"
+  "Security / Compliance lead":
+    - "collecting and keeping audit evidence current across many tools is probably a lot of manual work"
+    - "running SOC 2, ISO 27001 and GDPR side by side can mean doing the same work several times"
+  "Founder / CEO":
+    - "some enterprise deals may be waiting on a SOC 2 or ISO 27001 report"
+    - "getting audit-ready without a dedicated compliance team yet is probably a stretch"
+
+# Used instead of the role pains when the company already holds SOC 2 (verified on its own site),
+# so the email never suggests a gap the evidence contradicts. [assumption]
+pain_hypotheses_when_certified:
+  - "keeping SOC 2 evidence current between audits, and adding ISO 27001 or GDPR on top, is probably real ongoing work"
+  - "each new framework or customer security review may mean redoing work that's already been done for SOC 2"
+
+# A funding round is only used as an email hook if announced within this many months. [assumption]
+hook_funding_max_months: 6
+
+# Sprinto value statement — only claims stated in the case brief. Edit if you have approved marketing copy.
+value_statement: "Sprinto automates compliance for SaaS teams working toward SOC 2, ISO 27001 and GDPR, so the certification work doesn't fall on engineering."

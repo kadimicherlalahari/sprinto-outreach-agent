@@ -1,0 +1,25 @@
+{
+  "labelled_by": "reference labels written by Claude (DRAFT, pending review by the operator; edit human_label to correct them)",
+  "examples": [
+    {"id": "R1-01", "rubric": "relevance", "human_label": "pass", "input": {"quote": "Ledgerly is a SaaS billing platform for B2B finance teams.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "is_b2b_saas"}},
+    {"id": "R1-02", "rubric": "relevance", "human_label": "pass", "input": {"quote": "Ledgerly announces an $18M Series B to expand across Europe.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "funding_stage"}},
+    {"id": "R1-03", "rubric": "relevance", "human_label": "fail", "input": {"quote": "Ledgerfly raised a Series B last week.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "news.example", "criterion": "funding_stage"}, "note": "similarly named different company"},
+    {"id": "R1-04", "rubric": "relevance", "human_label": "fail", "input": {"quote": "We help customers get SOC 2 ready in weeks.", "company": "Carelink", "domain": "carelink.example", "source_domain": "carelink.example", "criterion": "compliance_in_progress"}, "note": "customer-framed"},
+    {"id": "R1-05", "rubric": "relevance", "human_label": "pass", "input": {"quote": "We are currently undergoing our SOC 2 Type II audit, expected to complete next quarter.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "compliance_in_progress"}},
+    {"id": "R1-06", "rubric": "relevance", "human_label": "fail", "input": {"quote": "Five ways to design better forms for your users.", "company": "Quietforms", "domain": "quietforms.example", "source_domain": "quietforms.example", "criterion": "is_b2b_saas"}, "note": "blog content, no product claim"},
+    {"id": "R1-07", "rubric": "relevance", "human_label": "pass", "input": {"quote": "Our Enterprise plan includes SAML single sign-on and audit logs.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "enterprise_selling"}},
+    {"id": "R1-08", "rubric": "relevance", "human_label": "fail", "input": {"quote": "We're hiring a Head of Sales in London.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "compliance_hiring"}},
+    {"id": "R1-09", "rubric": "relevance", "human_label": "pass", "input": {"quote": "Ledgerly is SOC 2 Type II certified, helping customers trust their billing data.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "certified"}, "note": "own certification; the 'helping customers' clause is about trust, not their compliance"},
+    {"id": "R1-10", "rubric": "relevance", "human_label": "pass", "input": {"quote": "Today we are a team of 120 employees across Bengaluru and London.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "employee_count"}},
+    {"id": "R1-11", "rubric": "relevance", "human_label": "fail", "input": {"quote": "The company has around 120 employees.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "estimates.example", "criterion": "employee_count"}, "note": "third-party page that does not name the company"},
+    {"id": "R1-12", "rubric": "relevance", "human_label": "pass", "input": {"quote": "We serve customers in the UK and the European Union.", "company": "Ledgerly", "domain": "ledgerly.example", "source_domain": "ledgerly.example", "criterion": "gdpr_exposure"}},
+    {"id": "R2-01", "rubric": "edit", "human_label": "typo", "input": {"before": "Is getting audit-ready on your list for the next few monhts?", "after": "Is getting audit-ready on your list for the next few months?"}},
+    {"id": "R2-02", "rubric": "edit", "human_label": "meaningful", "input": {"before": "Happy to share how that would look for your setup if useful.", "after": "Worth a 15-minute call next week?"}},
+    {"id": "R2-03", "rubric": "edit", "human_label": "typo", "input": {"before": "I noticed Ledgerly has an Enterprse plan.", "after": "I noticed Ledgerly has an Enterprise plan."}},
+    {"id": "R2-04", "rubric": "edit", "human_label": "meaningful", "input": {"before": "A guess on my side, so correct me if I'm wrong: deals may be waiting on SOC 2.", "after": "Deals may be waiting on SOC 2."}},
+    {"id": "R2-05", "rubric": "edit", "human_label": "meaningful", "input": {"before": "Hi Jeff,", "after": "Hey Jeff,"}, "note": "greeting change is a tone decision even though only 2 characters differ"},
+    {"id": "R2-06", "rubric": "edit", "human_label": "typo", "input": {"before": "Congratulations on the Series B annoucement.", "after": "Congratulations on the Series B announcement."}},
+    {"id": "R2-07", "rubric": "edit", "human_label": "meaningful", "input": {"before": "Is adding ISO 27001 on the roadmap?", "after": "Is adding GDPR on the roadmap?"}},
+    {"id": "R2-08", "rubric": "edit", "human_label": "none", "input": {"before": "Best, Lahari", "after": "Best,  Lahari"}}
+  ]
+}

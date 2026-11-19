@@ -1,0 +1,58 @@
+# Source credibility tiers. Edit freely.
+# tier 1 = primary evidence (the company's own domain is always tier 1 for facts about itself)
+# tier 2 = credible reporting / directories
+# tier 3 = third-party estimates: lower confidence, never sufficient alone for a must-have
+# anything not listed = "lead": usable only to find a source, never as evidence
+tiers:
+  2:
+    - reuters.com
+    - bloomberg.com
+    - techcrunch.com
+    - economictimes.indiatimes.com
+    - livemint.com
+    - moneycontrol.com
+    - inc42.com
+    - entrackr.com
+    - yourstory.com
+    - business-standard.com
+    - ycombinator.com
+    - prnewswire.com
+    - businesswire.com
+    - sec.gov
+  3:
+    - crunchbase.com
+    - tracxn.com
+    - pitchbook.com
+
+# Domains never fetched (access-controlled or disallowed for scraping).
+never_fetch:
+  - linkedin.com
+  - google.com
+  - bing.com
+  - duckduckgo.com
+  - facebook.com
+  - x.com
+  - twitter.com
+
+# Stage 1 discovery inputs.
+discovery:
+  # RSS feeds read directly (title/link/summary only; article fetched before any claim is used).
+  feeds:
+    - https://techcrunch.com/category/startups/feed/
+    - https://inc42.com/feed/
+    # entrackr.com/feed/ returned HTTP 404 on 2026-11-19; removed
+  # Accelerator / VC portfolio pages. Add pages whose terms allow access. Fetched with robots checks.
+  portfolio_pages: []
+  # Tavily search queries (leads only). Results restricted to tier-1/2 domains via include_domains.
+  search_queries:
+    - "SaaS startup raises Series A {month_year}"
+    - "B2B SaaS Series B funding {month_year}"
+    - "SaaS company SOC 2 compliance enterprise customers {month_year}"
+    # added 2026-11-19 to widen the pilot pool (still restricted to tier-1/2 domains)
+    - "B2B software startup raises Series A {month_year}"
+    - "fintech SaaS startup raises Series A {month_year}"
+    - "HR tech SaaS raises Series B {month_year}"
+    - "healthtech SaaS startup raises Series A {month_year}"
+    - "Indian SaaS startup raises Series B {month_year}"
+    - "API platform for enterprises raises Series A {month_year}"
+  max_candidates: 30
