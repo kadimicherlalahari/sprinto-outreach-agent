@@ -7,6 +7,7 @@ from __future__ import annotations
 import html
 import json
 import threading
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urlencode
 
@@ -216,6 +217,13 @@ a.fcol:hover{background:var(--sunk)}
 .scard ul{margin:0;padding:0;list-style:none;display:grid;gap:3px;font-size:12.5px}
 .scard li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scard li a{text-decoration:none;font-weight:560}
+.scard{position:relative;transition:border-color .12s,background .12s}
+.scard:hover{border-color:var(--accent);background:var(--surface)}
+.scard .stretch{color:inherit;text-decoration:none}
+.scard .stretch::after{content:"";position:absolute;inset:0;border-radius:inherit}
+.scard li a,.scard li{position:relative;z-index:1}
+.scard .go{font-size:12px;color:var(--accent);font-weight:560;display:flex;align-items:center;gap:2px;margin-top:2px}
+.scard .go svg{width:12px;height:12px}
 .duo{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:22px;align-items:start}
 .needs>.ph{padding:14px 16px 8px}
 .minis{display:grid;gap:2px;padding:0 8px 10px}
@@ -508,9 +516,11 @@ def create_app(mock: bool = False, store: Any = None, settings: Any = None, deps
 <label><input type="checkbox" name="use_search" checked> Tavily search</label>
 <label><input type="checkbox" name="use_portfolios" checked> Portfolio pages</label>
 <label>Research at most <input type="number" name="max_research" value="5" min="1" max="25" style="width:72px;padding:6px 8px"> companies</label></div>
-<p class="muted small">Each qualified company uses one Hunter search (free plan: 50 a month).</p></div></div></form>
+<p class="muted small">Each qualified company uses one Hunter search (free plan: 50 a month).</p></div>%s</div></form>
 <script>(function(){var d=document.querySelector('details.more'),o=document.querySelector('.opts');if(d&&o){d.addEventListener('toggle',function(){o.hidden=!d.open;});}})();</script>""" % (
-                icon("play"), icon("chevron"), icon("play"))
+                icon("play"), icon("chevron"), icon("play"),
+                '<p class="muted small" style="grid-column:1/-1;margin:0">On the website a run works in steps of about 4 minutes; '
+                'keep the tab open, and click <b>Continue run</b> if companies are still waiting.</p>' if auth.on_vercel() else "")
 
         # needs-you: compact list, only what is waiting
         items = action_queue(st, views)
@@ -569,10 +579,12 @@ style="flex:1;min-width:220px"><button class="btn primary" type="submit" %s>%s R
             '<p class="muted small">A run is in progress; wait for it to finish.</p>' if active else "")
         search = """<form method="get" action="/search" class="searchbox" style="width:340px" role="search">%s
 <input type="search" name="q" placeholder="Search companies by name or website" aria-label="Search companies"></form>""" % icon("search")
-        if auth.on_vercel():
-            launcher = """<section class="panel"><div class="pb" style="padding-top:18px;display:grid;gap:6px"><h2>Full prospecting run</h2>
-<p class="muted small">Finding and researching many companies takes 10&ndash;30 minutes, longer than the website can keep a request open,
-so it runs from the operator's computer: <code>python -m sprinto_agent run</code>. Use <b>Research one company</b> here.</p></div></section>"""
+        parked = summary(latest.get("summary_json")) if latest and latest["status"] == "paused" else {}
+        if parked.get("paused") == "time budget":
+            launcher = """<form class="panel" method="post" action="/runs/%s/resume"><div class="launch"><div class="glyph">%s</div>
+<div><h2>Run paused between steps</h2><p class="muted">%s compan%s still waiting. Each step researches companies for up to about
+4 minutes; keep this tab open while it works.</p></div><button class="btn primary" type="submit">%s Continue run</button></div></form>""" % (
+                e(latest["id"]), icon("runs"), e(parked.get("waiting", "Some")), "y" if parked.get("waiting") == 1 else "ies", icon("play"))
         body = """<div class="head"><div><h1>Overview</h1><p>What needs you, how the pipeline is moving, and what the agent is doing right now.</p></div>%s</div>
 %s%s<div class="duo">%s%s</div>%s""" % (search, one, funnel_html, queue, launcher, run_html)
         return layout("Overview", "overview", body, poll=True, msg=msg)
@@ -596,9 +608,6 @@ so it runs from the operator's computer: <code>python -m sprinto_agent run</code
         if err:
             return err
         from .pipeline import RunAlreadyActive, build_deps, execute_run, start_run
-        if auth.on_vercel():
-            return RedirectResponse("/?msg=" + quote("Blocked: prospecting runs take minutes and can't run on Vercel's serverless "
-                                                     "functions. Start them from your machine: python -m sprinto_agent run"), status_code=303)
         deps = (deps_factory or build_deps)(settings)
         inputs = {"domains": [d.strip() for d in domains.replace(",", "\n").splitlines() if d.strip()],
                   "use_feeds": bool(use_feeds), "use_search": bool(use_search), "use_portfolios": bool(use_portfolios),
@@ -610,6 +619,13 @@ so it runs from the operator's computer: <code>python -m sprinto_agent run</code
             return RedirectResponse("/?msg=" + quote("Blocked: %s" % ex), status_code=303)
         except CostNotConfigured as ex:
             return RedirectResponse("/controls?msg=" + quote("Blocked: %s" % ex), status_code=303)
+        if auth.on_vercel():
+            # serverless: no background threads; run one step inside this request, then park the run
+            try:
+                execute_run(st, settings, run_id, inputs, deps, deadline=time.monotonic() + STEP_SECONDS)
+            except Exception:
+                pass  # failure is recorded on the run row
+            return RedirectResponse("/runs/%s?msg=%s" % (run_id, quote(_step_msg(st, run_id))), status_code=303)
 
         def work():
             try:
@@ -698,6 +714,12 @@ so it runs from the operator's computer: <code>python -m sprinto_agent run</code
         except CostNotConfigured as ex:
             return RedirectResponse("/runs/%s?msg=%s" % (run_id, quote("Blocked: %s" % ex)), status_code=303)
         deps = (deps_factory or build_deps)(settings)
+        if auth.on_vercel():
+            try:
+                resume_run(st, settings, run_id, deps, deadline=time.monotonic() + STEP_SECONDS)
+            except Exception:
+                pass  # failure is recorded on the run row
+            return RedirectResponse("/runs/%s?msg=%s" % (run_id, quote(_step_msg(st, run_id))), status_code=303)
         _background("resume-" + run_id, lambda: resume_run(st, settings, run_id, deps))
         return RedirectResponse("/runs/%s?msg=%s" % (run_id, quote("Resuming from each company's last completed stage.")), status_code=303)
 
@@ -1157,7 +1179,7 @@ A contact is looked up only after a company qualifies.</div></section>"""
 <div class="scroll"><table class="tbl"><tbody>%s</tbody></table></div></details></section>""" % (
             e(run_id[:8]), e(run_id[:8]), e((r["started_at"] or "")[:16].replace("T", " ") + " UTC"), e(_run_inputs(r.get("input_json"))),
             spill(r["status"]) + ((' <form method="post" action="/runs/%s/resume" style="display:inline"><button class="btn primary sm" type="submit">Resume run</button></form>' % e(run_id))
-                                  if r["status"] in ("interrupted", "failed") else ""), prog, stat_html,
+                                  if r["status"] in ("interrupted", "failed", "paused") else ""), prog, stat_html,
             ('<div class="pb"><div class="notice small">Missing configuration during this run: %s</div></div>' % e(", ".join(gaps))) if gaps else "",
             company_table(company_views(st, run_id=run_id, running_run_ids=running_ids(st)), "No companies yet."),
             len(logs), log_rows or '<tr><td class="empty">No log entries.</td></tr>')
@@ -1246,6 +1268,21 @@ def _paused(st: Any) -> bool:
         return False
 
 
+# ---------------------------------------------------------------- run steps (Vercel)
+STEP_SECONDS = 240   # Vercel's function limit is 300 s (vercel.json); keep a margin for the page redirect
+
+
+def _step_msg(st: Any, run_id: str) -> str:
+    r = st.one("SELECT status, summary_json, error FROM research_runs WHERE id = %s", (run_id,)) or {}
+    s = summary(r.get("summary_json"))
+    if r.get("status") == "paused" and s.get("paused") == "time budget":
+        return "Step finished: %s researched so far, %s waiting. Click Continue run for the next step." % (
+            s.get("researched", 0), s.get("waiting", "some"))
+    if r.get("status") == "completed":
+        return "Run finished: %s researched, %s qualified, %s drafts." % (s.get("researched", 0), s.get("qualified", 0), s.get("drafts", 0))
+    return "Run %s%s" % (r.get("status", "stopped"), (": " + r["error"]) if r.get("error") else ".")
+
+
 # ---------------------------------------------------------------- formatting helpers
 def _stage_card(d: Dict[str, Any]) -> str:
     names = "".join('<li><a href="/companies/%s">%s</a>%s</li>' % (
@@ -1253,8 +1290,8 @@ def _stage_card(d: Dict[str, Any]) -> str:
         for c in d["companies"])
     more = '<li class="muted">+%d more</li>' % d["more"] if d["more"] else ""
     body = ('<ul>%s%s</ul>' % (names, more)) if names else '<p class="muted">None yet</p>'
-    return """<div class="scard"><div class="sh"><b>%s</b><span class="num" title="Companies whose furthest stage is this one">%s here</span></div><p class="sd">%s</p>%s</div>""" % (
-        e(d["label"]), e(d["count"]), e(d["detail"]), body)
+    return """<div class="scard"><div class="sh"><a class="stretch" href="/pipeline?stage=%s"><b>%s</b></a><span class="num" title="Companies whose furthest stage is this one">%s here</span></div><p class="sd">%s</p>%s<span class="go">View all %s</span></div>""" % (
+        e(d["key"]), e(d["label"]), e(d["count"]), e(d["detail"]), body, icon("chevron"))
 
 
 def _short_source(found_via: str) -> str:

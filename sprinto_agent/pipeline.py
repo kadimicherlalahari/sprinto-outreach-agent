@@ -11,6 +11,7 @@ Reliability rules:
 """
 from __future__ import annotations
 
+import time
 import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -198,7 +199,38 @@ def run_summary(store: Store, run_id: str) -> Dict[str, Any]:
             "skipped": sum(1 for c in cos if c["research_stage"] == "skipped")}
 
 
-def execute_run(store: Store, settings: Settings, run_id: str, inputs: Dict[str, Any], deps: Deps) -> Dict[str, Any]:
+# A run on Vercel works in steps: each request researches companies until its time budget is nearly used, then the
+# run is parked as 'paused' with the rest 'waiting' and "Continue run" picks it up. No company is cut off mid-way.
+MIN_STEP_SECONDS = 75       # don't start a company with less time than this left
+STEP_MARGIN_SECONDS = 45    # time kept back for contact lookup + drafting after research
+
+
+def _left(deadline: Optional[float]) -> Optional[float]:
+    return None if deadline is None else deadline - time.monotonic()
+
+
+def _out_of_time(store: Store, run_id: str, rest: List[str], deadline: Optional[float]) -> bool:
+    left = _left(deadline)
+    if left is None or left >= MIN_STEP_SECONDS:
+        return False
+    for cid in rest:
+        _set(store, cid, stop_code="time_budget", stop_reason="waiting: researched in the next step (click Continue run)")
+    store.log(run_id, "step time budget used; %d compan%s waiting for the next step" % (len(rest), "y" if len(rest) == 1 else "ies"))
+    _release(store, run_id, "paused", dict(run_summary(store, run_id), paused="time budget", waiting=len(rest)))
+    return True
+
+
+def _capped(settings: Settings, deadline: Optional[float]) -> Settings:
+    left = _left(deadline)
+    if left is None:
+        return settings
+    from dataclasses import replace
+    return replace(settings, max_seconds_per_company=max(20.0, min(settings.max_seconds_per_company, left - STEP_MARGIN_SECONDS)))
+
+
+def execute_run(store: Store, settings: Settings, run_id: str, inputs: Dict[str, Any], deps: Deps,
+                deadline: Optional[float] = None) -> Dict[str, Any]:
+    """`deadline` (time.monotonic() value) makes this one step of the run; see MIN_STEP_SECONDS."""
     store.update("research_runs", run_id, {"status": "running", "heartbeat_at": now_iso()})
     gaps = settings.missing() if not settings.mock else {}
     for k, v in gaps.items():
@@ -235,8 +267,10 @@ def execute_run(store: Store, settings: Settings, run_id: str, inputs: Dict[str,
                 store.log(run_id, "run paused: %s. Resume it after a person resumes billable work in Settings" % paused, "warning")
                 _release(store, run_id, "paused", summary)
                 return summary
+            if _out_of_time(store, run_id, [rest for _, rest in selected[i:]], deadline):
+                return run_summary(store, run_id)
             _beat(store, run_id)
-            _process_safely(store, settings, run_id, cid, c, deps)
+            _process_safely(store, _capped(settings, deadline), run_id, cid, c, deps)
         summary = dict(run_summary(store, run_id), config_gaps=gaps)
         _release(store, run_id, "completed", summary)
         return summary
@@ -255,7 +289,7 @@ def execute_run(store: Store, settings: Settings, run_id: str, inputs: Dict[str,
 
 
 def resume_run(store: Store, settings: Settings, run_id: str, deps: Deps,
-               only_company: Optional[str] = None) -> Dict[str, Any]:
+               only_company: Optional[str] = None, deadline: Optional[float] = None) -> Dict[str, Any]:
     """Continue an interrupted/failed run (or retry one company) from each company's last completed stage.
     Completed work is not repeated: researched companies are not re-researched, drafted ones not redrafted."""
     recover_stale_runs(store, settings.stale_run_minutes)
@@ -270,16 +304,23 @@ def resume_run(store: Store, settings: Settings, run_id: str, deps: Deps,
     store.log(run_id, "resumed%s (attempt %s)" % (" for one company" if only_company else "", int(run.get("attempts") or 1) + 1))
     try:
         rows = store.query("SELECT * FROM companies WHERE run_id = %s ORDER BY created_at", (run_id,))
+        todo = []
         for row in rows:
             if only_company and row["id"] != only_company:
                 continue
             stage = row.get("research_stage") or "pending"
             if stage == "skipped" or (stage == "done" and not row.get("error_kind") and row.get("stop_code") != "cost_cap_reached"):
                 continue
+            todo.append((row, stage))
+        for i, (row, stage) in enumerate(todo):
+            if _out_of_time(store, run_id, [r["id"] for r, _ in todo[i:]], deadline):
+                return run_summary(store, run_id)
+            if row.get("stop_code") == "time_budget":
+                _set(store, row["id"], stop_code=None, stop_reason=None)
             c = Candidate(row.get("name"), row["domain"], row["found_via"], lead_url=row.get("lead_url"),
                           stage1_status=row["stage1_status"], stage1_reason=row["stage1_reason"])
             _beat(store, run_id)
-            _process_safely(store, settings, run_id, row["id"], c, deps, from_stage=stage)
+            _process_safely(store, _capped(settings, deadline), run_id, row["id"], c, deps, from_stage=stage)
         summary = run_summary(store, run_id)
         _release(store, run_id, "completed", summary)
         return summary

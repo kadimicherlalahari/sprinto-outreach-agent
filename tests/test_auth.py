@@ -56,11 +56,12 @@ def test_open_redirect_blocked_after_login(store, monkeypatch):
     assert r.headers["location"] == "/"
 
 
-def test_runs_refused_on_vercel_and_cron_needs_secret(store, monkeypatch):
+def test_runs_on_vercel_finish_inside_the_request_and_cron_needs_secret(store, monkeypatch):
     c = client(store, monkeypatch, password="pw", cron="cron-s3cret")
     c.post("/login", data={"password": "pw", "next": "/"})
-    r = c.post("/run", data={"domains": "ledgerly.example"}, follow_redirects=True)
-    assert "run on Vercel" in r.text and store.query("SELECT id FROM research_runs") == []
+    r = c.post("/run", data={"domains": "ledgerly.example"}, follow_redirects=False)
+    assert r.headers["location"].startswith("/runs/")                                # no background thread on Vercel
+    assert store.one("SELECT status FROM research_runs")["status"] == "completed"
     assert c.get("/cron/gmail-sync").status_code == 403
     assert c.get("/cron/gmail-sync", headers={"Authorization": "Bearer wrong"}).status_code == 403
     assert c.get("/cron/gmail-sync", headers={"Authorization": "Bearer cron-s3cret"}).status_code == 200
