@@ -635,3 +635,76 @@ def make_draft(store: Store, settings: Settings, run_id: str, cid: str, name: st
     ensure_base_revision(store, store.draft(did))   # revision 1 = the first generated draft, kept forever
     store.log(run_id, "draft %s created for %s (waiting for review)" % (did[:8], co.get("domain")), "info", cid)
     return did
+
+
+# ---------------------------------------------------------------- single company (search bar / "research one company")
+class CompanyNotFound(ValueError):
+    pass
+
+
+def looks_like_domain(q: str) -> bool:
+    q = (q or "").strip()
+    return " " not in q and "." in q and len(q) >= 4
+
+
+def resolve_company(store: Store, query: str, deps: Deps) -> Dict[str, Any]:
+    """Turn what the operator typed into a company website.
+    - A URL or domain is used as given.
+    - A name already in the pipeline uses its stored domain.
+    - Otherwise ONE search for the official site; only a result whose domain matches the name is accepted
+      (the research step then checks the homepage really is that company). Nothing is guessed."""
+    from .discovery import NON_COMPANY_HOSTS, _compact
+    from .util import host_matches
+    q = (query or "").strip()
+    if not q:
+        raise CompanyNotFound("enter a company name or website")
+    if looks_like_domain(q):
+        d = registrable_domain(q)
+        if not d or any(host_matches(d, h) for h in NON_COMPANY_HOSTS + list(deps.sources.get("never_fetch") or [])):
+            raise CompanyNotFound("%s is not a company website we can research" % q)
+        return {"domain": d, "name": None, "how": "website you entered"}
+    row = store.one("SELECT name, domain FROM companies WHERE LOWER(name) = %s AND domain <> '(unknown)' "
+                    "ORDER BY created_at DESC LIMIT 1", (q.lower(),))
+    if row:
+        return {"domain": row["domain"], "name": row["name"], "how": "already in your pipeline"}
+    target = _compact(q)
+    if len(target) < 3:
+        raise CompanyNotFound("name too short to look up; enter the website instead")
+    blocked = NON_COMPANY_HOSTS + list(deps.sources.get("never_fetch") or []) + \
+        [d for t in (2, 3) for d in (deps.sources.get("tiers", {}).get(t) or deps.sources.get("tiers", {}).get(str(t)) or [])]
+    try:
+        hits = deps.search.search('"%s" official website' % q, max_results=6)
+    except SearchUnavailable as e:
+        raise CompanyNotFound("could not look up '%s' (%s); enter the website instead" % (q, e))
+    for h in hits:
+        d = registrable_domain(h.url)
+        if not d or any(host_matches(d, b) for b in blocked):
+            continue
+        root = _compact(d.split(".")[0])
+        if root == target or (len(root) >= 4 and (root.startswith(target) or target.startswith(root))):
+            return {"domain": d, "name": q, "how": "found by search (%s)" % d}
+    raise CompanyNotFound("no website matching '%s' was found; enter the website instead" % q)
+
+
+def research_one(store: Store, settings: Settings, query: str, deps: Deps, max_seconds: Optional[float] = None) -> Dict[str, Any]:
+    """Research a single company end to end (discover -> research -> qualify -> contact -> draft) as its own run.
+    `max_seconds` caps research time (used on Vercel so the whole request finishes inside the function limit)."""
+    from dataclasses import replace
+    from . import costs
+    if settings.mock:
+        seed_mock_costs(store)
+    else:
+        costs.apply_config_defaults(store)
+    costs.require_ready(store, settings_providers(settings))
+    if max_seconds:
+        settings = replace(settings, max_seconds_per_company=min(settings.max_seconds_per_company, max_seconds))
+    meter_deps, _ = _metered(store, "lookup", None, deps)
+    target = resolve_company(store, query, meter_deps)
+    inputs = {"domains": [target["domain"]], "use_feeds": False, "use_search": False, "use_portfolios": False,
+              "max_research": 1, "single_company": query[:120]}
+    run_id = start_run(store, settings, inputs, deps.icp)
+    summary = execute_run(store, settings, run_id, inputs, deps)
+    co = store.one("SELECT * FROM companies WHERE run_id = %s ORDER BY created_at LIMIT 1", (run_id,)) or {}
+    return {"run_id": run_id, "company_id": co.get("id"), "domain": target["domain"], "how": target["how"],
+            "qualification": co.get("qualification"), "stage": co.get("research_stage"), "stop_reason": co.get("stop_reason"),
+            "summary": summary}

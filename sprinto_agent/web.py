@@ -560,8 +560,21 @@ def create_app(mock: bool = False, store: Any = None, settings: Any = None, deps
             run_html = """<section class="panel"><div class="empty"><h2 style="margin-bottom:6px">No runs yet</h2>
 Start a run above. Try it with one or two company domains first to see how the research and review flow works.</div></section>"""
 
-        body = """<div class="head"><div><h1>Overview</h1><p>What needs you, how the pipeline is moving, and what the agent is doing right now.</p></div></div>
-%s<div class="duo">%s%s</div>%s""" % (funnel_html, queue, launcher, run_html)
+        one = """<section class="panel"><form method="post" action="/run-one" class="pb" style="display:grid;gap:10px;padding-top:18px">
+<div><h2>Research one company</h2><p class="muted small">Enter a website (acme.com) or a company name. It is researched against the ICP, a contact is looked up
+and, if it qualifies, a draft is written for your review. Takes 1&ndash;3 minutes; keep this tab open.</p></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><input type="text" name="q" required placeholder="acme.com or Acme" aria-label="Company website or name"
+style="flex:1;min-width:220px"><button class="btn primary" type="submit" %s>%s Research</button></div>%s</form></section>""" % (
+            "disabled" if active else "", icon("search"),
+            '<p class="muted small">A run is in progress; wait for it to finish.</p>' if active else "")
+        search = """<form method="get" action="/search" class="searchbox" style="width:340px" role="search">%s
+<input type="search" name="q" placeholder="Search companies by name or website" aria-label="Search companies"></form>""" % icon("search")
+        if auth.on_vercel():
+            launcher = """<section class="panel"><div class="pb" style="padding-top:18px;display:grid;gap:6px"><h2>Full prospecting run</h2>
+<p class="muted small">Finding and researching many companies takes 10&ndash;30 minutes, longer than the website can keep a request open,
+so it runs from the operator's computer: <code>python -m sprinto_agent run</code>. Use <b>Research one company</b> here.</p></div></section>"""
+        body = """<div class="head"><div><h1>Overview</h1><p>What needs you, how the pipeline is moving, and what the agent is doing right now.</p></div>%s</div>
+%s%s<div class="duo">%s%s</div>%s""" % (search, one, funnel_html, queue, launcher, run_html)
         return layout("Overview", "overview", body, poll=True, msg=msg)
 
     @app.get("/api/status")
@@ -608,6 +621,56 @@ Start a run above. Try it with one or two company domains first to see how the r
         state["threads"][run_id] = t
         t.start()
         return RedirectResponse("/", status_code=303)
+
+    @app.post("/run-one")
+    def run_one(q: str = Form("")):
+        st, err = guard()
+        if err:
+            return err
+        from .costs import CostNotConfigured
+        from .pipeline import CompanyNotFound, RunAlreadyActive, active_run, build_deps, recover_stale_runs, research_one
+        recover_stale_runs(st, settings.stale_run_minutes)
+        if active_run(st):
+            return RedirectResponse("/?msg=" + quote("Blocked: a run is in progress; try again when it finishes"), status_code=303)
+        deps = (deps_factory or build_deps)(settings)
+        if auth.on_vercel():
+            # one company fits inside a single request: run it now, with a time cap so the request can finish
+            try:
+                r = research_one(st, settings, q, deps, max_seconds=150)
+            except (CompanyNotFound, RunAlreadyActive, CostNotConfigured) as ex:
+                return RedirectResponse("/?msg=" + quote("Blocked: %s" % ex), status_code=303)
+            msg = "Researched %s (%s): %s." % (r["domain"], r["how"], r["qualification"] or "not researched")
+            dest = "/companies/%s" % r["company_id"] if r.get("company_id") else "/"
+            return RedirectResponse(dest + "?msg=" + quote(msg), status_code=303)
+        from .pipeline import resolve_company
+        try:
+            target = resolve_company(st, q, deps)
+        except CompanyNotFound as ex:
+            return RedirectResponse("/?msg=" + quote("Blocked: %s" % ex), status_code=303)
+        _background("one-" + target["domain"], lambda: research_one(st, settings, target["domain"], deps))
+        return RedirectResponse("/?msg=" + quote("Researching %s (%s). It appears under Latest run; this page refreshes when it finishes."
+                                                 % (target["domain"], target["how"])), status_code=303)
+
+    @app.get("/search", response_class=HTMLResponse)
+    @paged
+    def search_page(q: str = ""):
+        st, err = guard()
+        if err:
+            return err
+        term = (q or "").strip().lower()
+        views = company_views(st, running_run_ids=running_ids(st))
+        hits = [v for v in views if term and (term in (v.row.get("name") or "").lower() or term in (v.row.get("domain") or "").lower())]
+        body = """<div class="head"><div><h1>Search</h1><p>%s</p></div>
+<form method="get" action="/search" class="searchbox" style="width:340px" role="search">%s<input type="search" name="q" value="%s" aria-label="Search companies"></form></div>
+<section class="panel">%s</section>
+<section class="panel"><form method="post" action="/run-one" class="pb" style="display:flex;gap:8px;flex-wrap:wrap;padding-top:18px;align-items:center">
+<span class="small" style="flex:1;min-width:200px">%s</span><input type="hidden" name="q" value="%s">
+<button class="btn primary" type="submit" %s>%s Research %s</button></form></section>""" % (
+            e("%d compan%s match \"%s\"" % (len(hits), "y" if len(hits) == 1 else "ies", q)) if term else "Type a company name or website.",
+            icon("search"), e(q), company_table(hits, "No company in the pipeline matches that." if term else "Nothing searched yet."),
+            e("Not the one you meant, or not in the pipeline yet? Research it now." if term else ""), e(q),
+            "" if term else "disabled", icon("play"), e(q or "it"))
+        return layout("Search", "overview", body)
 
     def _background(label: str, fn) -> None:
         def work():
